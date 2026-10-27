@@ -156,30 +156,30 @@ def generate_LCs(folder_out, plots=False, observed=[]):
 
 def run_LCs(LC, saveresfolder):
 
-        fout_str = saveresfolder + LC.split('/')[-1].replace( \
-                            '.pic', '_results.pic')
+    fout_str = saveresfolder + LC.split('/')[-1].replace( \
+                        '.pic', '_results.pic')
 
-        # To start from an uncompleted session
-        if os.path.isfile(fout_str):
-            return
-        print(LC)
-        data = pickle.load(open(LC, 'rb'))
-        t = np.arange(data['t'][0], data['t'][1] + data['t'][2], \
-                    data['t'][2])
-        y = data['y']
-        yerr = np.zeros(len(t)) + data['stellar_pars']['values'][-1]
-        saveresfile = saveresfolder + LC.split('/')[-1]
-
-        try:
-            flarespar, flaresflag = analyse_LC([t, y, yerr], saveresfile, \
-                    verbose=False)
-            fout = open(fout_str, 'wb')
-            pickle.dump(flarespar, fout)
-            fout.close()
-        except TypeError:
-            print('Problematic LC:', LC)
-
+    # To start from an uncompleted session
+    if os.path.isfile(fout_str):
         return
+    print(LC)
+    data = pickle.load(open(LC, 'rb'))
+    t = np.arange(data['t'][0], data['t'][1] + data['t'][2], \
+                data['t'][2])
+    y = data['y']
+    yerr = np.zeros(len(t)) + data['stellar_pars']['values'][-1]
+    saveresfile = saveresfolder + LC.split('/')[-1]
+
+    try:
+        flarespar, flaresflag = analyse_LC([t, y, yerr], saveresfile, \
+                verbose=False)
+        fout = open(fout_str, 'wb')
+        pickle.dump(flarespar, fout)
+        fout.close()
+    except TypeError:
+        print('Problematic LC:', LC)
+
+    return
 
 def flare_recovery(folderin):
     plt.ioff()
@@ -330,26 +330,28 @@ def get_simulation_results(folderout, distance_threshold=3):
     det['ampl'] = np.hstack(det['ampl'])
     det['SNR'] = np.hstack(det['SNR'])
     det['flag'] = np.hstack(det['flag'])
-    hTh, bin_edges = np.histogram(det['ampl'], bins=20)
-    hRet, _ = np.histogram(det['ampl'][det['flag']], bins=bin_edges)
-    hNDe, _ = np.histogram(det['ampl'][~det['flag']], bins=bin_edges)
-    fig, ax = plt.subplots(figsize=(5, 3))
-    bins = bin_edges[:-1] + 0.5*np.diff(bin_edges)
-    ax.plot(bins, hRet/hTh*100., label='True positives')
-    ax.plot(bins, hNDe/hTh*100., '--', label='Missed events')
-    ax.set_xscale('log')
-    ax.set_xlabel('Peak amplitude', fontsize=14)
-    ax.set_ylabel('Percentage', fontsize=14)
-    # False positives
-    false_det['ampl'] = np.hstack(false_det['ampl'])
-    false_det['flag'] = np.hstack(false_det['flag'])
-    hObs, _ = np.histogram(false_det['ampl'], bins=bin_edges)
-    hFP, _ = np.histogram(false_det['ampl'][~false_det['flag']], bins=bin_edges)
-    ax.plot(bins, hFP/hObs*100., ':', label='False positives')
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(folderout + 'detection_stats.pdf')
-    plt.close('all')
+
+    for p in ['ampl', 'SNR']:
+        hTh, bin_edges = np.histogram(det[p], bins=20)
+        hRet, _ = np.histogram(det[p][det['flag']], bins=bin_edges)
+        hNDe, _ = np.histogram(det[p][~det['flag']], bins=bin_edges)
+        fig, ax = plt.subplots(figsize=(5, 3))
+        bins = bin_edges[:-1] + 0.5*np.diff(bin_edges)
+        ax.plot(bins, hRet/hTh*100., label='True positives')
+        ax.plot(bins, hNDe/hTh*100., '--', label='Missed events')
+        ax.set_xscale('log')
+        ax.set_xlabel('Peak ' + p, fontsize=14)
+        ax.set_ylabel('Percentage', fontsize=14)
+        # False positives
+        false_det[p] = np.hstack(false_det[p])
+        false_det['flag'] = np.hstack(false_det['flag'])
+        hObs, _ = np.histogram(false_det[p], bins=bin_edges)
+        hFP, _ = np.histogram(false_det[p][~false_det['flag']], bins=bin_edges)
+        ax.plot(bins, hFP/hObs*100., ':', label='False positives')
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(folderout + 'detection_stats_' + p + '.pdf')
+        plt.close('all')
 
     return
 

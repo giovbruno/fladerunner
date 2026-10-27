@@ -217,10 +217,11 @@ def get_results(resfolder, min_flares=100, sectors=range(27, 88), \
     corr_ampl = corr_coeffs['fit_ampl'][0]
     corr_fwhm = corr_coeffs['fit_fwhm'][0]
 
-    caII_IRT = pd.read_csv(resfolder + '../literature_data/CaII_IRT_GaiaDR3.csv', \
-            skipinitialspace=True)
+    caII_IRT = pd.read_csv(resfolder \
+            + '../literature_data/CaII_IRT_GaiaDR3.csv', skipinitialspace=True)
 
-    stellar_pars_file = resfolder + '../literature_data/crossmarch_stassun_xmm.csv'
+    stellar_pars_file = resfolder \
+                            + '../literature_data/crossmarch_stassun_xmm.csv'
 
     good_targets_gaia = resfolder + 'good_targets_gaia_DR3_reddening.csv'
     gtg = pd.read_csv(good_targets_gaia)
@@ -228,7 +229,8 @@ def get_results(resfolder, min_flares=100, sectors=range(27, 88), \
     gtg = gtg.loc[keep_idx].reset_index(drop=True)
 
     if len(glob.glob(stellar_pars_file)) == 0:
-        tic_params_file = resfolder + '../literature_data/flarestars_parameters_stassun2019.vot'
+        tic_params_file = resfolder \
+                + '../literature_data/flarestars_parameters_stassun2019.vot'
         stassun = Table.read(tic_params_file)
         xmm_fits = fits.open(resfolder + '../literature_data/xmmsl2t.fits')
         xmm = Table(xmm_fits[1].data)
@@ -276,7 +278,8 @@ def get_results(resfolder, min_flares=100, sectors=range(27, 88), \
         'impulsive_ED_fraction', 't12', 'total_duration', 'Teff [K]', 'logg', \
         'feh', 'radius', 'phot_var', 'CaII_IRT', 'tessmag', 'Prot', 'FAP', \
         'distance', 'redchi2', 'ticname', 'ra', 'dec', 'scatter_SN', \
-        'dist_from_xmm', 'E_B-V', 'efolding_time [min]', 'total_efolding']
+        'dist_from_xmm', 'E_B-V', 'efolding_time [min]', 'total_efolding', \
+        'yerr', 'RMS']
     for band in ['6', '7', '8']:
         parameters.append('FLUX_B' + band)
         parameters.append('FLUX_B' + band + '_ERR')
@@ -355,6 +358,8 @@ def get_results(resfolder, min_flares=100, sectors=range(27, 88), \
 
                         tt, thisflare = flare.get_single_profile(n)
                         params_s['Peak amplitude'].append(thisflare.max())
+                        params_s['RMS'].append(flare.noise_level)
+                        params_s['yerr'].append(np.median(flare.yerrdata))
                         params_s['Peak time [BTJD]'].append(flare.tref \
                             + flare.result_nodip.params_LM['tpeak' + str(n)].value)
                         params_s['Duration [min]'].append( \
@@ -649,6 +654,8 @@ def get_results(resfolder, min_flares=100, sectors=range(27, 88), \
                     '', regex=False)
     df1[psave].to_csv(resfolder + 'singlepeak_parameters.csv', index=False)
     dfc1[psave].to_csv(resfolder + 'multipeak_parameters.csv', index=False)
+
+    set_trace()
 
     ### Trends
     #Tstar_vs_Rstar_vs_Ro(df, nfl, resfolder)
