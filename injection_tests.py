@@ -64,12 +64,19 @@ def generate_LCs(folder_out, plots=False, observed=[]):
     observed: if not empty use these light curves as basis for flare addition.
     '''
 
-    def add_flares(y):
+    def add_flares(y, noise=None):
+        '''
+        The "noise" keyword can be used to compute flare amplitudes in terms
+        of SNR.
+        '''
         # Flare parameter grid
         flares_per_lc = np.random.randint(low=5, high=30)
         tpeak = np.random.uniform(low=0., high=28., size=flares_per_lc)
         fwhm = loguniform.rvs(a=20./86400., b=5./24., size=flares_per_lc)
-        ampl = loguniform.rvs(a=1e-4, b=1.0, size=flares_per_lc)
+        if noise == None:
+            ampl = loguniform.rvs(a=1e-4, b=1.0, size=flares_per_lc)
+        else:
+            ampl = loguniform.rvs(a=noise, b=100.*noise, size=flares_per_lc)
 
         y = np.copy(y_quiet)
         for j in range(flares_per_lc):
@@ -116,13 +123,21 @@ def generate_LCs(folder_out, plots=False, observed=[]):
         nLC = len(sigma)*len(Prot)*len(Q0)*len(dQ)*len(noise_range)
         print('Generating', nLC, 'light curves...')
 
-        for c, i in enumerate(itertools.product(sigma, Prot, Q0, dQ, noise_range)):
+        for c, i in enumerate(itertools.product(sigma, Prot, Q0, dQ, \
+                                                noise_range)):
             print(c)
             sigma_i, Prot_i, Q0_i, dQ_i, noise_i = i
             t, y_quiet = model_LC(sigma_i, Prot_i, Q0_i, dQ_i, noise_i)
-            y_flare, flare_params = add_flares(y_quiet)
+            y_flare, flare_params = add_flares(y_quiet, noise=noise_i)
             save_LC(t, y_flare, flare_params, \
                         folder_out + 'LC_' + str(c) + '.pic', stellar_pars=i)
+
+            if plots:
+                plt.plot(t, y_flare)
+                plt.show()
+                set_trace()
+                plt.close()
+
     else:
         from astropy.io import fits
 
@@ -173,15 +188,20 @@ def run_LCs(LC, saveresfolder):
     try:
         flarespar, flaresflag = analyse_LC([t, y, yerr], saveresfile, \
                 verbose=False)
-        fout = open(fout_str, 'wb')
-        pickle.dump(flarespar, fout)
-        fout.close()
     except TypeError:
         print('Problematic LC:', LC)
+        flarespar = []
+
+    fout = open(fout_str, 'wb')
+    pickle.dump(flarespar, fout)
+    fout.close()
 
     return
 
 def flare_recovery(folderin):
+    '''
+    Analyse all simulated light curves.
+    '''
     plt.ioff()
 
     saveresfolder = folderin.replace('simulated_LCs', 'simulated_analysis')

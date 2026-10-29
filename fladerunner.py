@@ -65,6 +65,7 @@ def analyse_LC(LC, saveresfolder, flare_threshold=4., rebin=0, \
     '''
 
     wth, fth = np.loadtxt(throughput_folder + 'TESS_TESS.Red.dat', unpack=True)
+    
     flarespar, flaresflag = fd.find_flares(LC, wth=wth, fth=fth, \
         flare_threshold=flare_threshold, flatten=True, plot_flat=False, \
         saveplots=saveresfolder, normalise=True, \
