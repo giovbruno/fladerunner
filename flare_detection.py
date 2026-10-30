@@ -48,13 +48,13 @@ def find_flares(lcfile, flatten=True, \
             yerr = lcfile[2]
         else:
             yerr = np.zeros(len(t)) + np.std(y)
-        header = None
+        header = {}
     elif type(lcfile) == str and \
                 (lcfile.endswith('.dat') or lcfile.endswith('.txt')):
         print('\nLC file:', lcfile.split(lcfolder)[1], '\n')
         t, y = np.loadtxt(lcfile, unpack=True)
         yerr = np.std(y)
-        header = None
+        header = {}
     elif type(lcfile) == str and lcfile.endswith('.fits'):
         try:
             lc = fits.open(lcfile, ignore_missing_simple=True)
@@ -195,7 +195,7 @@ def find_flares(lcfile, flatten=True, \
         axs[1].set_ylabel('Power', fontsize=14)
 
         plt.savefig(saveplots.replace('.pdf','_LC.pdf').replace( \
-                                                    '.fits', '_LC.pdf'))
+                            '.fits', '_LC.pdf').replace('.pic', '_LC.pdf'))
         plt.show()
         set_trace()
         plt.close('all')
@@ -245,6 +245,7 @@ def flare_analysis(t, yflat, yerr, peaki, noise_level, ls_quiet, \
     -------
     flarespar: dict with fitted flare parameters
     '''
+
     # This is used to determine flare length, by removing some noise
     filtflare = signal.medfilt(yflat, kernel_size=filt_kernel_size)
 
@@ -260,6 +261,7 @@ def flare_analysis(t, yflat, yerr, peaki, noise_level, ls_quiet, \
 
     flare_ranges = []
     for i, peak in enumerate(peaki):
+                
         if verbose:
             print('Flare #', i + 1, '/', len(peaki))
 

@@ -65,7 +65,7 @@ def analyse_LC(LC, saveresfolder, flare_threshold=4., rebin=0, \
     '''
 
     wth, fth = np.loadtxt(throughput_folder + 'TESS_TESS.Red.dat', unpack=True)
-    
+
     flarespar, flaresflag = fd.find_flares(LC, wth=wth, fth=fth, \
         flare_threshold=flare_threshold, flatten=True, plot_flat=False, \
         saveplots=saveresfolder, normalise=True, \
@@ -140,21 +140,21 @@ def get_results_simulations(LCsample, result_path, get_csv=True):
                     try:
                         flare.Tstar = header['TEFF']*units.K
                         flare.Rstar = header['RADIUS']*constants.R_sun
+                        results['Teff [K]'].append(header['TEFF'])
+                        results['radius'].append(header['RADIUS'])
+                    except KeyError:
+                        results['Teff [K]'].append(-999.)
+                        results['radius'].append(-999.)
+                    try:
                         flare.Tflare = 9000.*units.K
                         flare.wth = wth*units.AA
                         flare.fth = fth
                         results['Energy (Shibayama) [erg]'].append( \
                                     flare.energies[n].value)
-                        results['Teff [K]'].append(header['TEFF'])
-                        results['radius'].append(header['RADIUS'])
-                    except TypeError:
+                    except KeyError:
                         results['Energy (Shibayama) [erg]'].append(-999.)
-                        results['Teff [K]'].append(-999.)
-                        results['radius'].append(-999.)
-                        results['phot_var'].append(-999.)
-                    except IndexError:
-                        # This can only happen for the phot_var info
-                        results['phot_var'].append(-999.)
+                    # This can only happen for the phot_var info
+                    results['phot_var'].append(-999.)
 
                     # Stellar params
                     try:
@@ -163,7 +163,7 @@ def get_results_simulations(LCsample, result_path, get_csv=True):
                         results['dec'].append(header['DEC_OBJ'])
                         results['ticname'].append(header['OBJECT'])
                         results['tessmag'].append(header['TESSMAG'])
-                    except TypeError:
+                    except KeyError:
                         results['logg'].append(-999.)
                         results['ra'].append(-999.)
                         results['dec'].append(-999.)
@@ -2223,8 +2223,8 @@ def consecutive_flare_stats(df, dfcomplex, resfolder):
 
     def permutated_skew(df, par, refvalue, niter=1000):
         '''
-        How likely is it that a random selection of ratios shows the same level of
-        asymmetry?
+        How likely is it that a random selection of ratios shows the same level
+        of asymmetry?
         There's no more need of using "shift(1)", as we are not looking for
         consecutive flares anymore
         '''
@@ -2274,22 +2274,24 @@ def consecutive_flare_stats(df, dfcomplex, resfolder):
                     density=True, cumulative=False, bins=logbins)
 
         dfc['normalized_' + par] \
-            = np.log10(dfc.groupby(['LCname', 'n_event'])[par].shift(1) / df[par])
+            = np.log10(dfc.groupby(['LCname', 'n_event'])[par].shift(1)/df[par])
         stat_c = {}
         for order in range(1, 5):
             flag = dfc['order'] == order
             if m == 0:
-                label = 'Peak no. {} to {} ({})'.format(order + 1, order, np.sum(flag))
+                label = 'Peak no. {} to {} ({})'.format(order + 1, order, \
+                            np.sum(flag))
             else:
                 label = 'Peak no. {} to {}'.format(order + 1, order)
             skew = stats.skew(dfc['normalized_' + par][flag], \
                             nan_policy='omit')
             stat_c[order] = abs(skew)
             pc = permutated_skew(dfc, par, stat_c[order])
-            print(par, '{}, {}, skew and p-value for peak no. {} vs {} flares'.format(\
+            print(par, \
+               '{}, {}, skew and p-value for peak no. {} vs {} flares'.format( \
                         skew, pc, order + 1, order))
-            ax[m].hist(dfc['normalized_' + par][flag], log=False, histtype='step', \
-                label=label, \
+            ax[m].hist(dfc['normalized_' + par][flag], log=False, \
+                histtype='step', label=label, \
                 density=True, cumulative=False, bins=logbins)
         if 'amplitude' in par:
             partext = par + ' '

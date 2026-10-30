@@ -7,7 +7,7 @@ import celerite2
 from celerite2 import terms
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.interpolate import CubicSpline
+from scipy.interpolate import CubicSpline, interp1d
 from scipy.stats import loguniform
 import itertools
 from models import flare_model_mendoza
@@ -210,15 +210,21 @@ def flare_recovery(folderin):
     throughput_folder = datadir + '/filters/'
 
     LCs = glob.glob(folderin + '*pic')
+    # Look for already processed LCs
+    done = glob.glob(saveresfolder + '*pic')
+    done2 = [x.replace('analysis', 'LCs').replace('_results', '') for x in done]
+    LCs_TBD = list(set(LCs) - set(done2))
 
     num_cores = multiprocessing.cpu_count()
-    with multiprocessing.Pool(processes=num_cores) as pool:
-        pars = [(LC, saveresfolder) for LC in LCs]
-        results = pool.starmap(run_LCs, pars)
+    #with multiprocessing.Pool(processes=num_cores) as pool:
+    #    pars = [(LC, saveresfolder) for LC in LCs_TBD]
+    #    results = pool.starmap(run_LCs, pars)
+    for LC in LCs_TBD:
+        run_LCs(LC, saveresfolder)
 
     return
 
-def get_simulation_results(folderout, distance_threshold=3):
+def get_simulation_results(folderout, distance_threshold=10):
     '''
     Work one LCs at a time and plot results for matching flares.
 
@@ -249,13 +255,24 @@ def get_simulation_results(folderout, distance_threshold=3):
             df = get_results_simulations([LC], folderout, get_csv=False)
         except FileNotFoundError:
             continue
+        # Reject LCs with failed normalisation (or failed analysis)
+        if (len(df['scatter_SN']) > 0 and df['scatter_SN'][0] > 3.) \
+                or len(df['scatter_SN']) == 0:
+            continue
         LC_in = LC.replace('_analysis', '_LCs').replace('_results.pic', '.pic')
         data_in = pickle.load(open(LC_in, 'rb'))
         tpeaks_in = data_in['flare_pars']['values'][0]
         fwhm_in = data_in['flare_pars']['values'][1]
         ampl_in = data_in['flare_pars']['values'][2]
         yerr = data_in['stellar_pars']['values'][4]
-        flag = df['Duration [min]'] < 1.
+
+        # Avoid flares close to borders
+        #flag = np.logical_or(tpeaks_in < 0.5, 28. - tpeaks_in < 0.5)
+        #tpeaks_in = tpeaks_in[~flag]
+        #fwhm_in = fwhm_in[~flag]
+        #ampl_in = ampl_in[~flag]
+
+        flag = df['Duration [min]'] <= 1.
         df = df[~flag]
         if len(df['Peak time']) == 0:
             continue
@@ -265,11 +282,15 @@ def get_simulation_results(folderout, distance_threshold=3):
         det['ampl'].append(ampl_in)
         det['SNR'].append(ampl_in/yerr)
         det['flag'].append(flag_array_i)
+
+        #ff = np.logical_and(ampl_in/yerr > 90., np.array(flag_array_i) == False)
+        #if np.sum(ff) > 0.:
+        #    set_trace()
         # This gives false positives (False values in flag array)
         # All flares that are not within 3*delta t of an injected peak are
         # classified as FP
         pairs_false, flag_array_i_false = find_closest_pair(df['Peak time'], \
-            tpeaks_in, 3*data_in['t'][2])
+            tpeaks_in, distance_threshold*data_in['t'][2])
         false_det['ampl'].append(df['Peak amplitude'])
         false_det['flag'].append(flag_array_i_false)
         false_det['SNR'].append(df['Peak amplitude']/yerr)
@@ -352,7 +373,11 @@ def get_simulation_results(folderout, distance_threshold=3):
     det['flag'] = np.hstack(det['flag'])
 
     for p in ['ampl', 'SNR']:
-        hTh, bin_edges = np.histogram(det[p], bins=20)
+        if p == 'ampl':
+            bin_edges = 20
+        else:
+            bin_edges = np.concatenate([[1., 3., 5.], np.arange(10, 101, 10)])
+        hTh, bin_edges = np.histogram(det[p], bins=bin_edges)
         hRet, _ = np.histogram(det[p][det['flag']], bins=bin_edges)
         hNDe, _ = np.histogram(det[p][~det['flag']], bins=bin_edges)
         fig, ax = plt.subplots(figsize=(5, 3))
@@ -368,10 +393,19 @@ def get_simulation_results(folderout, distance_threshold=3):
         hObs, _ = np.histogram(false_det[p], bins=bin_edges)
         hFP, _ = np.histogram(false_det[p][~false_det['flag']], bins=bin_edges)
         ax.plot(bins, hFP/hObs*100., ':', label='False positives')
+        ax.set_ylim(0., 100.)
         plt.legend()
         plt.tight_layout()
         plt.savefig(folderout + 'detection_stats_' + p + '.pdf')
         plt.close('all')
+
+        x = np.linspace(bins.min(), bins.max(), 1000)
+        TP = interp1d(bins, hRet/hTh*100.)(x)
+        FP = interp1d(bins, hFP/hObs*100.)(x)
+        equal_det = x[abs(TP - FP).argmin()]
+        print(p, 'True positives = False positives at', equal_det)
+        max_det = max(hRet/hTh)*100.
+        print(p, 'Max detection rate (true positives):', max_det)
 
     return
 
