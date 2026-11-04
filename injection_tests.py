@@ -18,6 +18,7 @@ from astropy import units
 import pandas as pd
 import os
 import seaborn as sns
+import scipy.optimize as opt
 import multiprocessing
 from pdb import set_trace
 
@@ -224,7 +225,7 @@ def flare_recovery(folderin):
 
     return
 
-def get_simulation_results(folderout, distance_threshold=10):
+def get_simulation_results(folderout, distance_threshold=3):
     '''
     Work one LCs at a time and plot results for matching flares.
 
@@ -233,6 +234,9 @@ def get_simulation_results(folderout, distance_threshold=10):
     distance_threshold: number of data point distance for a flare peak to
     correspond to a true one.
     '''
+
+    import lmfit
+
     ampl_in_tot, ampl_out_tot = [], []
     fwhm_in_tot, fwhm_out_tot = [], []
 
@@ -245,20 +249,20 @@ def get_simulation_results(folderout, distance_threshold=10):
     det = {}
     det['ampl'] = []
     det['flag'] = []
-    det['SNR'] = []
+    det['S/N'] = []
     false_det = {}
     false_det['ampl'] = []
     false_det['flag'] = []
-    false_det['SNR'] = []
+    false_det['S/N'] = []
     for LCi, LC in enumerate(LCs):
         try:
             df = get_results_simulations([LC], folderout, get_csv=False)
         except FileNotFoundError:
             continue
         # Reject LCs with failed normalisation (or failed analysis)
-        if (len(df['scatter_SN']) > 0 and df['scatter_SN'][0] > 3.) \
-                or len(df['scatter_SN']) == 0:
-            continue
+        #if (len(df['scatter_SN']) > 0 and df['scatter_SN'][0] > 3.) \
+        #        or len(df['scatter_SN']) == 0:
+        #    continue
         LC_in = LC.replace('_analysis', '_LCs').replace('_results.pic', '.pic')
         data_in = pickle.load(open(LC_in, 'rb'))
         tpeaks_in = data_in['flare_pars']['values'][0]
@@ -280,7 +284,7 @@ def get_simulation_results(folderout, distance_threshold=10):
         pairs, flag_array_i = find_closest_pair(tpeaks_in, \
                 df['Peak time'], distance_threshold*data_in['t'][2])
         det['ampl'].append(ampl_in)
-        det['SNR'].append(ampl_in/yerr)
+        det['S/N'].append(ampl_in/yerr)
         det['flag'].append(flag_array_i)
 
         #ff = np.logical_and(ampl_in/yerr > 90., np.array(flag_array_i) == False)
@@ -293,7 +297,7 @@ def get_simulation_results(folderout, distance_threshold=10):
             tpeaks_in, distance_threshold*data_in['t'][2])
         false_det['ampl'].append(df['Peak amplitude'])
         false_det['flag'].append(flag_array_i_false)
-        false_det['SNR'].append(df['Peak amplitude']/yerr)
+        false_det['S/N'].append(df['Peak amplitude']/yerr)
 
         index_input = [x[0] for x in pairs]
         index_output = [x[1] for x in pairs]
@@ -369,43 +373,78 @@ def get_simulation_results(folderout, distance_threshold=10):
 
     # Detection rates
     det['ampl'] = np.hstack(det['ampl'])
-    det['SNR'] = np.hstack(det['SNR'])
+    det['S/N'] = np.hstack(det['S/N'])
     det['flag'] = np.hstack(det['flag'])
 
-    for p in ['ampl', 'SNR']:
-        if p == 'ampl':
-            bin_edges = 20
-        else:
-            bin_edges = np.concatenate([[1., 3., 5.], np.arange(10, 101, 10)])
-        hTh, bin_edges = np.histogram(det[p], bins=bin_edges)
-        hRet, _ = np.histogram(det[p][det['flag']], bins=bin_edges)
-        hNDe, _ = np.histogram(det[p][~det['flag']], bins=bin_edges)
-        fig, ax = plt.subplots(figsize=(5, 3))
-        bins = bin_edges[:-1] + 0.5*np.diff(bin_edges)
-        ax.plot(bins, hRet/hTh*100., label='True positives')
-        ax.plot(bins, hNDe/hTh*100., '--', label='Missed events')
-        ax.set_xscale('log')
-        ax.set_xlabel('Peak ' + p, fontsize=14)
-        ax.set_ylabel('Percentage', fontsize=14)
-        # False positives
-        false_det[p] = np.hstack(false_det[p])
-        false_det['flag'] = np.hstack(false_det['flag'])
-        hObs, _ = np.histogram(false_det[p], bins=bin_edges)
-        hFP, _ = np.histogram(false_det[p][~false_det['flag']], bins=bin_edges)
-        ax.plot(bins, hFP/hObs*100., ':', label='False positives')
-        ax.set_ylim(0., 100.)
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(folderout + 'detection_stats_' + p + '.pdf')
-        plt.close('all')
+    bin_edges = np.concatenate([np.arange(1, 10), np.arange(10, 101, 10)])
+    hTh, bin_edges = np.histogram(det['S/N'], bins=bin_edges)
+    hRet, _ = np.histogram(det['S/N'][det['flag']], bins=bin_edges)
+    hNDe, _ = np.histogram(det['S/N'][~det['flag']], bins=bin_edges)
+    fig, ax = plt.subplots(figsize=(5, 3))
+    bins = bin_edges[:-1] + 0.5*np.diff(bin_edges)
+    ax.plot(bins, hRet/hTh, 'b--', label='True positives')
+    #ax.plot(bins, hNDe/hTh, '--', label='Missed events')
+    ax.set_xscale('log')
+    ax.set_xlabel('Peak S/N', fontsize=14)
+    ax.set_ylabel('Recovered fraction', fontsize=14)
 
-        x = np.linspace(bins.min(), bins.max(), 1000)
-        TP = interp1d(bins, hRet/hTh*100.)(x)
-        FP = interp1d(bins, hFP/hObs*100.)(x)
-        equal_det = x[abs(TP - FP).argmin()]
-        print(p, 'True positives = False positives at', equal_det)
-        max_det = max(hRet/hTh)*100.
-        print(p, 'Max detection rate (true positives):', max_det)
+    # Fit logistic function to true positives
+    pfit = lmfit.Parameters()
+    for x in ['a', 'b', 'c', 'd']:
+        pfit.add(x, value=0., min=-10., max=10., vary=True)
+    #TPpopt, TPpcov = opt.curve_fit(logistic, bins, hRet/hTh)
+    result1 = lmfit.minimize(logistic, pfit, args=(bins, hRet/hTh))
+    xTh = np.linspace(bins.min(), bins.max(), 1000)
+    y_fit_TP = logistic(result1.params, xTh, [])
+    ax.plot(xTh, y_fit_TP, 'b', linewidth=3, alpha=0.5)
+
+    # False positives
+    false_det['S/N'] = np.hstack(false_det['S/N'])
+    false_det['flag'] = np.hstack(false_det['flag'])
+    hObs, _ = np.histogram(false_det['S/N'], bins=bin_edges)
+    hFP, _ = np.histogram(false_det['S/N'][~false_det['flag']], bins=bin_edges)
+    ax.plot(bins, hFP/hObs, 'r:', label='False positives')
+
+    # Fit logistic function to false positives
+    FP = hFP/hObs
+    flag = np.isnan(FP)
+    result2 = lmfit.minimize(logistic, result1.params, \
+                   args=(bins[~flag], FP[~flag]))
+    y_fit_FP = logistic(result2.params, xTh, [])
+    ax.plot(xTh, y_fit_FP, 'r', linewidth=3, alpha=0.5)
+
+    ax.set_ylim(0., 1.)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(folderout + 'detection_stats_SNR.pdf')
+    plt.close('all')
+
+    x = np.linspace(bins.min(), bins.max(), 1000)
+    TP = interp1d(bins, hRet/hTh)(x)
+    FP = interp1d(bins, hFP/hObs)(x)
+    equal_det = x[abs(TP - FP).argmin()]
+    print('True positives = False positives at', equal_det)
+    max_det = max(hRet/hTh)*100.
+    print('Max detection rate (true positives):', max_det)
+
+    plt.figure()
+    reliability = y_fit_TP/(y_fit_TP + y_fit_FP)
+    # Normalize to 1
+    reliability /= np.sum(reliability)
+    plt.semilogx(xTh, reliability, label='Reliability')
+    ratio = y_fit_TP/y_fit_FP
+    ratio /= np.sum(ratio)
+    plt.semilogx(xTh, ratio, label='TP/FP')
+    plt.legend()
+    plt.xlabel('S/N', fontsize=14)
+    plt.ylabel('Score', fontsize=14)
+    plt.tight_layout()
+    plt.savefig(folderout + 'detection_stats_reliability.pdf')
+    plt.close('all')
+
+    # Save reliability
+    with open(folderout + 'reliability.pic', 'wb') as fout:
+        pickle.dump([xTh, reliability], fout)
 
     return
 
@@ -433,3 +472,16 @@ def find_closest_pair(arr1, arr2, tolerance):
             flag_array.append(False)
 
     return pairs, flag_array
+
+def logistic(pars, x, data):
+    '''
+    Parameters
+    ----------
+    data: an empty data array to evaluate model.
+    '''
+    model = pars['a'] / (1. + np.exp(-pars['c'] * (x - pars['d']))) \
+                    + pars['b']
+    if len(data) == 0:
+        return model
+    else:
+        return data - model

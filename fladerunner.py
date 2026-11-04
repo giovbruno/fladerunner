@@ -17,7 +17,7 @@ import lmfit
 from scipy.optimize import curve_fit
 import pandas as pd
 import powerlaw
-from scipy import stats, integrate, special
+from scipy import stats, integrate, special, interpolate
 import seaborn as sns
 homedir = os.path.expanduser('~')
 from pdb import set_trace
@@ -145,6 +145,9 @@ def get_results_simulations(LCsample, result_path, get_csv=True):
                     except KeyError:
                         results['Teff [K]'].append(-999.)
                         results['radius'].append(-999.)
+                    except TypeError:
+                        results['Teff [K]'].append(-999.)
+                        results['radius'].append(-999.)
                     try:
                         flare.Tflare = 9000.*units.K
                         flare.wth = wth*units.AA
@@ -164,6 +167,12 @@ def get_results_simulations(LCsample, result_path, get_csv=True):
                         results['ticname'].append(header['OBJECT'])
                         results['tessmag'].append(header['TESSMAG'])
                     except KeyError:
+                        results['logg'].append(-999.)
+                        results['ra'].append(-999.)
+                        results['dec'].append(-999.)
+                        results['ticname'].append(-999.)
+                        results['tessmag'].append(-999.)
+                    except TypeError:
                         results['logg'].append(-999.)
                         results['ra'].append(-999.)
                         results['dec'].append(-999.)
@@ -217,6 +226,10 @@ def get_results(resfolder, min_flares=100, sectors=range(27, 88), \
     corr_coeffs = pickle.load(open(file_inj, 'rb'))
     corr_ampl = corr_coeffs['fit_ampl'][0]
     corr_fwhm = corr_coeffs['fit_fwhm'][0]
+
+    file_TPfun = resfolder \
+                + '../injection_tests/simulated_analysis/reliability.pic'
+    SNRth, reliability = pickle.load(open(file_TPfun, 'rb'))
 
     caII_IRT = pd.read_csv(resfolder \
             + '../literature_data/CaII_IRT_GaiaDR3.csv', skipinitialspace=True)
@@ -556,6 +569,12 @@ def get_results(resfolder, min_flares=100, sectors=range(27, 88), \
     surf_g = (10**df['logg'])/100.*units.m/units.s**2
     mass = surf_g*(df['radius']*constants.R_sun)**2/constants.G
     df['mass'] = mass/constants.M_sun
+    # Associate a weight to each flare, accorfing to their SNR and depening on
+    # the injection test TP rate
+    df['Peak SNR'] = (df['Peak amplitude']/df['yerr']).astype(float)
+    reliability_int = interpolate.interp1d(SNRth, reliability, \
+            fill_value='extrapolate')
+    df['weight'] = reliability_int(df['Peak SNR'])
 
     # Restrict to FGKM stars, with detected rotation period, luminosity class V
     flagT = filter_df(df, maxT, maxR, maxProt, maxFAP, maxTmag, massrange)
@@ -626,6 +645,12 @@ def get_results(resfolder, min_flares=100, sectors=range(27, 88), \
     flag = np.isinf(dfc['log_efolding_time'])
     dfc = dfc[~flag]
 
+    # Weights should be normalised
+    df['weight'] = df['weight'].div( \
+                df.groupby('Flare type')['weight'].transform('sum'))
+    dfc['weight'] = dfc['weight'].div( \
+                dfc.groupby('Flare type')['weight'].transform('sum'))
+
     # Filter non-flaring stars too
     nfl = get_non_flaring_stars(resfolder, maxT, maxR, maxTmag, maxProt, maxFAP)
     nfl.rename(columns={'RADIUS':'radius', 'Prot_[days]':'Prot', \
@@ -655,8 +680,6 @@ def get_results(resfolder, min_flares=100, sectors=range(27, 88), \
                     '', regex=False)
     df1[psave].to_csv(resfolder + 'singlepeak_parameters.csv', index=False)
     dfc1[psave].to_csv(resfolder + 'multipeak_parameters.csv', index=False)
-
-    set_trace()
 
     ### Trends
     #Tstar_vs_Rstar_vs_Ro(df, nfl, resfolder)
@@ -688,56 +711,15 @@ def get_results(resfolder, min_flares=100, sectors=range(27, 88), \
     #        'log_radius', 'log_energy', \
     #        r'$\log R_\star~[R_\odot]$', r'$\log$ Energy [erg]', resfolder)
     #simple_complex_fit(df[single], df[~single], dfc[complex], \
-    #        'logg', 'log_duration', \
-    #        r'$\log g$', r'$\log$ Duration [min]', resfolder)
-    #simple_complex_fit(df[single], df[~single], dfc[complex], \
     #        'logg', 'log_impulse', \
     #       r'$\log g$', r'$\log \mathcal{I}$ [min$^{-1}$]', resfolder)
-    #simple_complex_fit(df[single], df[~single], dfc[complex], \
-    #        'log_energy', 'log_fwhm', \
-    #        r'$\log$ Energy [erg]', r'$\log$ FWHM [min]', resfolder)
-    #simple_complex_fit(df[single], df[~single], dfc[complex], \
-    #        'logg', 'log_amplitude', \
-    #        r'$\log g$', r'$\log$ Amplitude', resfolder)
-    #simple_complex_fit(df[single], df[~single], dfc[complex], \
-    #        'logg', 'log_fwhm', \
-    #        r'$\log g$', r'$\log$ FWHM', resfolder)
-    #simple_complex_fit(df[single], df[~single], dfc[complex], \
-    #    'log_radius', 'log_impulse', \
-    #     r'$\log (R_\star/R_\odot)$', r'$\log$ Impulsiveness [min$^{-1}$]', \
-    #     resfolder)
-    #simple_complex_fit(df[single], df[~single], dfc[complex], \
-    #    'log_energy', 'log_impulse', \
-    #     r'$\log$ Energy [erg]', r'$\log$ Impulsiveness [min$^{-1}$]', \
-    #     resfolder)
-    #simple_complex_fit(df[single], df[~single], dfc[complex], \
-    #    'log_energy', 'log_duration', \
-    #     r'$\log$ Energy [erg]', r'$\log$ Duration [min]', \
-    #     resfolder)
     #simple_complex_fit(df[single], df[~single], dfc[complex], \
     #    'log_energy', 'log_efolding_time', \
     #     r'$\log$ Energy [erg]', r'$\log \tau$ [min]', \
     #     resfolder)
     #simple_complex_fit(df[single], df[~single], dfc[complex], \
     #    'logg', 'log_efolding_time', \
-    #     r'$\log g$', r'$\log \tau$ [min]', \
-    #     resfolder)
-    #simple_complex_fit(df[single], df[~single], dfc[complex], \
-    #    'log_efolding_time', 'log_luminosity', \
-    #     r'$\log \tau$', r'$\log$ Peak luminosity [erg s$^{-1}$]', \
-    #     resfolder)
-    #simple_complex_fit(df[single], df[~single], dfc[complex], \
-    #    'log_efolding_time', 'log_luminosity', \
-    #     r'$\log \tau [min]$', r'$\log$ Peak luminosity [erg s$^{-1}$]', \
-    #     resfolder)
-    #simple_complex_fit(df[single], df[~single], dfc[complex], \
-    #    'logg', 'log_luminosity', \
-    #     r'$\log g$', r'$\log L_\mathrm{peak}$ [erg s$^{-1}$]', \
-    #     resfolder)
-    #simple_complex_fit(df[single], df[~single], dfc[complex], \
-    #    'logg', 'log_amplitude', \
-    #     r'$\log g$', r'$\log$ amplitude', \
-    #     resfolder)
+    #     r'$\log g$', r'$\log \tau$ [min]', resfolder)
 
     #consecutive_flare_stats(df, dfc, resfolder)
 
@@ -847,7 +829,6 @@ def compare_Ro(df, resfolder):
     plt.tight_layout()
     plt.savefig(resfolder + 'tau_bonanno25_vs_wright18.pdf')
     plt.close()
-    set_trace()
 
     return
 
@@ -1127,6 +1108,9 @@ def simple_complex_fit(df1, df2, df3, par1, par2, label_par1, label_par2, \
         bins = 0.5*(bin_edges[1:] + bin_edges[:-1])
         ax.errorbar(bins, binned_stats['mean'], yerr=binned_stats['std'], \
                     fmt='o', color=colors[i], capsize=2)
+        #ax.fill_between(bins, binned_stats['mean'] - binned_stats['std'], \
+        #        y2=binned_stats['mean'] + binned_stats['std'], \
+        #        color=colors[i], alpha=0.2)
 
     labels = ['IF', 'SFC', 'CF']
     for i, dd in enumerate([df1, df2, df3]):
@@ -1135,7 +1119,8 @@ def simple_complex_fit(df1, df2, df3, par1, par2, label_par1, label_par2, \
         rng = np.random.default_rng()
         a, b = [], []
         for j in range(1000):
-            xi, yi = rng.choice([x, y], size=len(x), axis=1)
+            # Apply weight from injection tests
+            xi, yi = rng.choice([x, y], size=len(x), p=dd['weight'], axis=1)
             ai, bi = np.polyfit(xi, yi, deg=1)
             a.append(ai)
             b.append(bi)
@@ -1218,9 +1203,10 @@ def fit_target_distributions(df, par, stellar_pars, targets, bootstrap=True):
             alphas, sigmas = [], []
             print('Bootstrap for target:', tg, '...')
             distrib = df[par][flag_tg]
+            weight = df['weight'][flag_tg]/np.sum(df['weight'][flag_tg])
             rng = np.random.default_rng()
             for i in range(1000):
-                newdata = rng.choice(distrib, size=len(distrib))
+                newdata = rng.choice(distrib, size=len(distrib), p=weight)
                 fit_th = powerlaw.Fit(newdata, verbose=False)
                 alphas.append(fit_th.alpha)
                 sigmas.append(fit_th.sigma)
@@ -1644,12 +1630,13 @@ def segment_regression(df, par, resfolder, labelx='', labely='', samesize=False)
         flag = df['Flare type'] == ft
         x = df['log_Ro'][flag].tolist()
         y = df[par][flag].tolist()
+
         print(par, 'vs log Ro -', ft)
 
         # Bootstrap
         rng = np.random.default_rng()
         result, models = [], []
-        for j in range(1000):
+        for j in range(5000):
             if j % 100 == 0:
                 print(j)
             if not samesize:
@@ -1685,7 +1672,7 @@ def segment_regression(df, par, resfolder, labelx='', labely='', samesize=False)
         model = fit2.predict(xx)
 
         lro = df[flag]['log_Ro']
-        bin_edges = np.linspace(lro.min(), lro.max(), 15)
+        bin_edges = np.linspace(lro.min(), lro.max(), 10)
         df['bins'] = pd.cut(df[flag]['log_Ro'], bins=bin_edges)#, retbins=True)
         binned_stats = df[flag].groupby('bins')[par].agg(['mean', 'std'])
         bins = 0.5*(bin_edges[1:] + bin_edges[:-1])
@@ -1932,8 +1919,6 @@ def waiting_time_distribution(df, resfolder, fltypes, lab, set_logbins=None, \
 
 def wt_diff(wt1, wt2, plot, resfolder):
 
-    from scipy.interpolate import interp1d
-
     fig, ax = plt.subplots()
     colors = ['royalblue', 'orange']
     keys = ['$0.1 < Ro \\leq 0.5$', '$Ro \\leq 0.1$']
@@ -1950,7 +1935,7 @@ def wt_diff(wt1, wt2, plot, resfolder):
             ax.set_ylabel('Excess counts (IF + SFC) - CF', fontsize=14)
         # Interpolate exponential fits for complex flares
         elif plot == 'model_residuals':
-            interp = interp1d(wt2[ro_i][2], wt2[ro_i][3], fill_value='extrapolate', \
+            interp = interpolate.interp1d(wt2[ro_i][2], wt2[ro_i][3], fill_value='extrapolate', \
                         bounds_error=False)
             resid = interp(positions)
             ax.bar(positions[flag], wt2[ro_i][1][0][flag] - resid[flag], \
@@ -2151,7 +2136,7 @@ def flaring_vs_nonflaring_stars(df, nfl, resfolder):
         plt.savefig(resfolder + 'flaring_stars_' + str(p) + '.pdf')
         plt.close()
     nfl.drop_duplicates(subset='ticname')[['ticname', 'designation', 'Teff [K]', 'logg', 'feh', 'radius', 'mass', 'Prot', 'FAP', 'RA_OBJ', 'DEC_OBJ', 'tessmag', 'phot_g_mean_mag', 'Ro_wright']].to_csv('/home/giovanni/Desktop/non_flaring_stars.csv', index=False)
-    set_trace()
+
     return
 
 def Tstar_vs_Rstar_vs_Ro(df, nfl, resfolder):
@@ -2247,52 +2232,79 @@ def consecutive_flare_stats(df, dfcomplex, resfolder):
     dfcomplex['seq'] = dfcomplex.groupby('LCname')['n_event'].diff()
     dfi = dfcomplex[dfcomplex['seq'] == 1]
 
-    fig, ax = plt.subplots(nrows=2, ncols=2, figsize=(12, 6))
+    fig, ax = plt.subplots(nrows=1, ncols=3, figsize=(12, 3))
     ax = ax.flatten()
-    pars = ['Peak amplitude', 'Impulsiveness [min$^{-1}$]', \
-            'Energy [erg]', 'efolding_time [min]']
+    pars = ['Peak amplitude', 'efolding_time [min]', \
+                'Impulsiveness [min$^{-1}$]']#'Energy [erg]', ]
     logbins = np.linspace(-3, 3, 20)
     # Distributions to compare
     distribs = {}
     for m, par in enumerate(pars):
         # Start with consecutive isolated flares
+        print(par)
         dfi['normalized_' + par] \
-            = np.log10(dfi.groupby(['LCname'])[par].shift(1) / dfi[par])
+            = np.log10(dfi[par].div(df.groupby(['LCname'])[par].shift(1)))
+        distribs['IF'] = dfi['normalized_' + par]
+        print('Mean, std for IF: {:.2f}, {:.2f}'.format(np.mean(distribs['IF']), \
+                    np.std(distribs['IF'])))
         skew = stats.skew(dfi['normalized_' + par], nan_policy='omit')
         stat_i = abs(skew)
         pi = permutated_skew(dfi, par, stat_i)
-        print(par, '{}, {}, skew and p-value for isolated consecutive flares'.format( \
-                        skew, pi))
+        #print(par, '{}, {}, skew and p-value for isolated consecutive flares'.format( \
+        #                skew, pi))
 
         if m == 0:
             label = 'Consecutive single-peak ({})'.format( \
                     len(dfi['normalized_' + par]))
         else:
-            label = 'Consecutive single-peak'
+            label = ''
+
         ax[m].hist(dfi['normalized_' + par], log=False, histtype='step', \
                     label=label, \
-                    density=True, cumulative=False, bins=logbins)
+                    density=True, cumulative=False, bins=logbins, \
+                    linewidth=3)
 
         dfc['normalized_' + par] \
-            = np.log10(dfc.groupby(['LCname', 'n_event'])[par].shift(1)/df[par])
+            = np.log10(df[par].div(dfc.groupby(['LCname', 'n_event'])[par].shift(1)))
+        distribs['SFC'] = dfc['normalized_' + par]
+        print('Mean, std for SFC: {:.2f}, {:.2f}'.format(np.mean(distribs['SFC']), \
+                    np.std(distribs['SFC'])))
+
+        # Compare distributions
+        kstest = stats.ks_2samp(distribs['IF'], distribs['SFC'], \
+                nan_policy='omit')
+        print('KS test statistic and pvalue:', kstest)
+
         stat_c = {}
-        for order in range(1, 5):
-            flag = dfc['order'] == order
-            if m == 0:
-                label = 'Peak no. {} to {} ({})'.format(order + 1, order, \
-                            np.sum(flag))
-            else:
-                label = 'Peak no. {} to {}'.format(order + 1, order)
-            skew = stats.skew(dfc['normalized_' + par][flag], \
-                            nan_policy='omit')
-            stat_c[order] = abs(skew)
-            pc = permutated_skew(dfc, par, stat_c[order])
-            print(par, \
-               '{}, {}, skew and p-value for peak no. {} vs {} flares'.format( \
-                        skew, pc, order + 1, order))
-            ax[m].hist(dfc['normalized_' + par][flag], log=False, \
-                histtype='step', label=label, \
-                density=True, cumulative=False, bins=logbins)
+        #for order in range(1, 5):
+        #flag = dfc['order'] == order
+        flag = dfc['order'] < 10.
+        #if m == 0:
+        #    label = 'Peak no. {} to {} ({})'.format(order + 1, order, \
+        #                np.sum(flag))
+        #else:
+        #    label = 'Peak no. {} to {}'.format(order + 1, order)
+        if m == 0:
+            label = 'Consecutive multi-peak ({})'.format(np.sum(flag))
+        else:
+            label = '' #Consecutive multi-peak'
+
+        label2 = '\n(KS test p-value: {:.2f})'.format(kstest.pvalue)
+        skew = stats.skew(dfc['normalized_' + par][flag], \
+                        nan_policy='omit')
+        #stat_c[order] = abs(skew)
+        #pc = permutated_skew(dfc, par, stat_c[order])
+        pc = permutated_skew(dfc, par, abs(skew))
+        #print(par, \
+        #   '{}, {}, skew and p-value for peak no. {} vs {} flares'.format( \
+        #            skew, pc, order + 1, order))
+        #print(par, \
+        #   '{}, {}, skew and p-value for consecutive SFC'.format(skew, pc))
+
+        ax[m].hist(dfc['normalized_' + par][flag], log=False, \
+            histtype='step', label=label, linewidth=3, \
+            density=True, cumulative=False, bins=logbins)
+
         if 'amplitude' in par:
             partext = par + ' '
         elif 'efolding_time' in par:
@@ -2300,12 +2312,14 @@ def consecutive_flare_stats(df, dfcomplex, resfolder):
         else:
             partext = par
         ax[m].set_xlabel(partext.split('[')[0] + '$\log$-ratio', fontsize=14)
-        ax[m].legend(loc='upper left')
+        if m == 0:
+            ax[m].legend(loc='upper left')
+
     fig.supylabel('PDF', fontsize=14)
     plt.tight_layout()
     plt.savefig(resfolder + 'consecutive_flare_stats_PDF.pdf')
     plt.close()
-    set_trace()
+
     for par in pars:
         print('\n', par)
         for order in range(1, dfc['order'].max() + 1):
@@ -2321,38 +2335,60 @@ def consecutive_flare_stats(df, dfcomplex, resfolder):
             print(str(order), 'vs', str(order - 1), ': ', pval)
 
     dfc['ED_consecutive [s]'] = dfc.groupby(['LCname', \
-            'n_event'])['ED [s]'].shift(1).astype(float)
+            'n_event'])['ED [s]'].shift(-1).astype(float)
     dfi['ED_consecutive [s]'] = dfi.groupby('LCname')[ \
-                    'ED [s]'].shift(1).astype(float)
+                    'ED [s]'].shift(-1).astype(float)
 
     # Add consecutive isolated single-peak flares
     dfsingle = dfcomplex[np.logical_and( \
         dfcomplex['peaks_per_event'] == 1, dfcomplex['seq'] == 1)]
     dfsingle['ED_consecutive [s]'] = dfsingle.groupby( \
-                    ['LCname'])['ED [s]'].shift(1).astype(float)
+                    ['LCname'])['ED [s]'].shift(-1).astype(float)
 
     # Add non-consecutive isolated single-peak flares - at least 1 hr separation
     flag = dfcomplex['peaks_per_event'] > 0
     dfsingle_sep = dfcomplex[flag].sample(n=5000, replace=False)
     dfsingle_sep['ED_consecutive [s]'] = dfsingle_sep.groupby( \
-                    ['LCname'])['ED [s]'].shift(1).astype(float)
+                    ['LCname'])['ED [s]'].shift(-1).astype(float)
     dfsingle_sep['Peak_time_following'] = dfsingle_sep.groupby( \
-                    ['LCname'])['Peak time [BTJD]'].shift(1).astype(float)
+                    ['LCname'])['Peak time [BTJD]'].shift(-1).astype(float)
     delta_t = dfsingle_sep['Peak time [BTJD]'] - dfsingle_sep['Peak_time_following']
     delta_t = abs(delta_t)*24.
     separation = np.logical_and(~np.isnan(delta_t), delta_t > 1.)
     dfsingle_sep = dfsingle_sep[separation]
+
+    # Compute corr coeff for 1000 samplings, different stars
+    pr_iter = []
+    count = 0
+    niter = 1000
+    # Let's reassign weights to make sure we're not making some mistake here
+    weight = dfcomplex['weight']/np.sum(dfcomplex['weight'])
+    for it in range(niter):
+        zz = dfcomplex.sample(n=2000, replace=False, weights=weight)
+        zz['ED_consecutive [s]'] = zz['ED [s]'].shift(-1).astype(float)
+        ok = ~np.isnan(zz['ED_consecutive [s]'])
+        # Remove pairs with at least one duplicate element?
+        rsp = stats.spearmanr(np.log10(zz['ED [s]'][ok]), \
+                    np.log10(zz['ED_consecutive [s]'][ok]))
+        pr_iter.append(rsp[0])
+        if rsp[1] >= 0.05:
+            count += 1
+    p_value = count/niter
+    pr_sep_mean = np.mean(pr_iter)
+    pr_sep_std = np.std(pr_iter)
+    print('Flare pairs from different stars (p, r_mean, r_std): {:.2f}, {:.2f}, {:.2f}'.format( \
+            p_value, pr_sep_mean, pr_sep_std))
 
     # Compute corr coeff for 1000 samplings
     pr_iter = []
     count = 0
     niter = 1000
     for it in range(niter):
-        zz = dfcomplex.sample(n=2000, replace=False)
+        zz = dfcomplex.sample(n=2000, replace=False, weights=weight)
         zz['ED_consecutive [s]'] = zz.groupby( \
-                    ['LCname'])['ED [s]'].shift(1).astype(float)
+                    ['LCname'])['ED [s]'].shift(-1).astype(float)
         zz['Peak_time_following'] = zz.groupby( \
-                    ['LCname'])['Peak time [BTJD]'].shift(1).astype(float)
+                    ['LCname'])['Peak time [BTJD]'].shift(-1).astype(float)
         delta_t = zz['Peak time [BTJD]'] - zz['Peak_time_following']
         delta_t = abs(delta_t)*24.
         flag = np.logical_and(~np.isnan(delta_t), delta_t > 1.)
@@ -2405,7 +2441,7 @@ def consecutive_flare_stats(df, dfcomplex, resfolder):
                     pr_baseline)
     fig.supxlabel('ED [s]', fontsize=16)
     fig.supylabel('Consecutive ED [s]', fontsize=16)
-    plt.legend()
+    #plt.legend()
     plt.tight_layout()
     plt.savefig(resfolder + 'consecutive_flare_ED.pdf')
     plt.close()
@@ -2602,7 +2638,7 @@ def condense_flare_cascades(df, resfolder):
 
         cols_to_max = ['Peak luminosity [erg s$^{-1}$]', 'Peak amplitude', \
                 'Area [m$^2$]', 'Peak flux [W m$^{-2}$]', 'Peak luminosity [W]', \
-                'Peak flux [erg s$^{-1}$ cm$^{-2}$]']
+                'Peak flux [erg s$^{-1}$ cm$^{-2}$]', 'weight']
         dfc[cols_to_max] = dfc.groupby(group_cols)[cols_to_max].transform('max')
         dfc['Impulsiveness [min$^{-1}$]'] = dfc['Peak amplitude']/dfc['FWHM [min]']
 
