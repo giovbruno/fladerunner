@@ -228,8 +228,8 @@ def get_results(resfolder, min_flares=100, sectors=range(27, 88), \
     corr_fwhm = corr_coeffs['fit_fwhm'][0]
 
     file_TPfun = resfolder \
-                + '../injection_tests/simulated_analysis/reliability.pic'
-    SNRth, reliability = pickle.load(open(file_TPfun, 'rb'))
+                + '../injection_tests/simulated_analysis/F1_score.pic'
+    SNRth, F1 = pickle.load(open(file_TPfun, 'rb'))
 
     caII_IRT = pd.read_csv(resfolder \
             + '../literature_data/CaII_IRT_GaiaDR3.csv', skipinitialspace=True)
@@ -572,9 +572,11 @@ def get_results(resfolder, min_flares=100, sectors=range(27, 88), \
     # Associate a weight to each flare, accorfing to their SNR and depening on
     # the injection test TP rate
     df['Peak SNR'] = (df['Peak amplitude']/df['yerr']).astype(float)
-    reliability_int = interpolate.interp1d(SNRth, reliability, \
-            fill_value='extrapolate')
-    df['weight'] = reliability_int(df['Peak SNR'])
+    F1_int = interpolate.interp1d(SNRth, F1, fill_value='extrapolate')
+    df['weight'] = F1_int(df['Peak SNR'])
+    neg_weight = df['weight'] <= 0.
+    min_weight = df['weight'][~neg_weight].min()
+    df.loc[neg_weight, 'weight'] = min_weight
 
     # Restrict to FGKM stars, with detected rotation period, luminosity class V
     flagT = filter_df(df, maxT, maxR, maxProt, maxFAP, maxTmag, massrange)
@@ -721,10 +723,12 @@ def get_results(resfolder, min_flares=100, sectors=range(27, 88), \
     #    'logg', 'log_efolding_time', \
     #     r'$\log g$', r'$\log \tau$ [min]', resfolder)
 
-    #consecutive_flare_stats(df, dfc, resfolder)
-
+    consecutive_flare_stats(df, dfc, resfolder)
+    set_trace()
     #segment_regression(pd.concat([df, dfc[complex]]), 'log_ED', resfolder, \
     #    labelx=r'$\log Ro$', labely=r'$\log$ ED', samesize=False)
+    #segment_regression(pd.concat([df, dfc[complex]]), 'log_ED', resfolder, \
+    #    labelx=r'$\log Ro$', labely=r'$\log$ ED', samesize=True)
     #segment_regression(pd.concat([df, dfc[complex]]), 'rate_per_target', \
     #                resfolder, labelx=r'$\log Ro$', \
     #                labely=r'$\log$ Flares (star day)$^{-1}$')
@@ -1170,7 +1174,8 @@ def fit_target_distributions(df, par, stellar_pars, targets, bootstrap=True):
     for tgp in stellar_pars:
         target_pars[tgp] = []
     if bootstrap:
-        for tgp in ['alpha_bootstrap', 'sigma_bootstrap']:
+        for tgp in ['alpha_bootstrap', 'sigma_bootstrap', \
+                    'bic_bootstrap_mean', 'bic_bootstrap_sigma']:
             target_pars[tgp] = []
 
     target_distrib = []
@@ -1200,7 +1205,7 @@ def fit_target_distributions(df, par, stellar_pars, targets, bootstrap=True):
         # See impact of data uncertainties via bootstrap
         #if 'Energy' in par:
         if bootstrap:
-            alphas, sigmas = [], []
+            alphas, sigmas, deltabics = [], [], []
             print('Bootstrap for target:', tg, '...')
             distrib = df[par][flag_tg]
             weight = df['weight'][flag_tg]/np.sum(df['weight'][flag_tg])
@@ -1210,8 +1215,15 @@ def fit_target_distributions(df, par, stellar_pars, targets, bootstrap=True):
                 fit_th = powerlaw.Fit(newdata, verbose=False)
                 alphas.append(fit_th.alpha)
                 sigmas.append(fit_th.sigma)
-            target_pars['alpha_bootstrap'].append(np.mean(alphas))
-            target_pars['sigma_bootstrap'].append(np.std(alphas))
+                deltabics.append(compare_bic(fit_th, 'power_law', \
+                            'truncated_power_law'))
+            target_pars['alpha_bootstrap'].append(np.nanmean(alphas))
+            target_pars['sigma_bootstrap'].append(np.nanstd(alphas))
+            target_pars['bic_bootstrap_mean'].append(np.nanmean(deltabics))
+            target_pars['bic_bootstrap_sigma'].append(np.nanstd(deltabics))
+            print(tg, ': PL vs Truncated PL Delta BIC from bootstrap:', \
+                        '{:.2f} +/- {:.2f}'.format( \
+                        np.nanmean(deltabics), np.nanstd(deltabics)))
 
     for tgp in target_pars.keys():
         target_pars[tgp] = np.array(target_pars[tgp])
@@ -1636,7 +1648,7 @@ def segment_regression(df, par, resfolder, labelx='', labely='', samesize=False)
         # Bootstrap
         rng = np.random.default_rng()
         result, models = [], []
-        for j in range(5000):
+        for j in range(1000):
             if j % 100 == 0:
                 print(j)
             if not samesize:
@@ -2232,10 +2244,10 @@ def consecutive_flare_stats(df, dfcomplex, resfolder):
     dfcomplex['seq'] = dfcomplex.groupby('LCname')['n_event'].diff()
     dfi = dfcomplex[dfcomplex['seq'] == 1]
 
-    fig, ax = plt.subplots(nrows=1, ncols=3, figsize=(12, 3))
+    fig, ax = plt.subplots(nrows=1, ncols=4, figsize=(16, 4))
     ax = ax.flatten()
     pars = ['Peak amplitude', 'efolding_time [min]', \
-                'Impulsiveness [min$^{-1}$]']#'Energy [erg]', ]
+                'Impulsiveness [min$^{-1}$]', 'Energy [erg]']
     logbins = np.linspace(-3, 3, 20)
     # Distributions to compare
     distribs = {}
@@ -2263,6 +2275,7 @@ def consecutive_flare_stats(df, dfcomplex, resfolder):
                     label=label, \
                     density=True, cumulative=False, bins=logbins, \
                     linewidth=3)
+        ax[m].set_yticks([])
 
         dfc['normalized_' + par] \
             = np.log10(df[par].div(dfc.groupby(['LCname', 'n_event'])[par].shift(1)))
@@ -2315,7 +2328,8 @@ def consecutive_flare_stats(df, dfcomplex, resfolder):
         if m == 0:
             ax[m].legend(loc='upper left')
 
-    fig.supylabel('PDF', fontsize=14)
+    #fig.supylabel('PDF', fontsize=14)
+    ax[0].set_ylabel('PDF', fontsize=14)
     plt.tight_layout()
     plt.savefig(resfolder + 'consecutive_flare_stats_PDF.pdf')
     plt.close()

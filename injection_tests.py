@@ -7,7 +7,7 @@ import celerite2
 from celerite2 import terms
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.interpolate import CubicSpline, interp1d
+from scipy.interpolate import CubicSpline, interp1d, make_splrep
 from scipy.stats import loguniform
 import itertools
 from models import flare_model_mendoza
@@ -375,76 +375,45 @@ def get_simulation_results(folderout, distance_threshold=3):
     det['ampl'] = np.hstack(det['ampl'])
     det['S/N'] = np.hstack(det['S/N'])
     det['flag'] = np.hstack(det['flag'])
-
-    bin_edges = np.concatenate([np.arange(1, 10), np.arange(10, 101, 10)])
-    hTh, bin_edges = np.histogram(det['S/N'], bins=bin_edges)
-    hRet, _ = np.histogram(det['S/N'][det['flag']], bins=bin_edges)
-    hNDe, _ = np.histogram(det['S/N'][~det['flag']], bins=bin_edges)
-    fig, ax = plt.subplots(figsize=(5, 3))
-    bins = bin_edges[:-1] + 0.5*np.diff(bin_edges)
-    ax.plot(bins, hRet/hTh, 'b--', label='True positives')
-    #ax.plot(bins, hNDe/hTh, '--', label='Missed events')
-    ax.set_xscale('log')
-    ax.set_xlabel('Peak S/N', fontsize=14)
-    ax.set_ylabel('Recovered fraction', fontsize=14)
-
-    # Fit logistic function to true positives
-    pfit = lmfit.Parameters()
-    for x in ['a', 'b', 'c', 'd']:
-        pfit.add(x, value=0., min=-10., max=10., vary=True)
-    #TPpopt, TPpcov = opt.curve_fit(logistic, bins, hRet/hTh)
-    result1 = lmfit.minimize(logistic, pfit, args=(bins, hRet/hTh))
-    xTh = np.linspace(bins.min(), bins.max(), 1000)
-    y_fit_TP = logistic(result1.params, xTh, [])
-    ax.plot(xTh, y_fit_TP, 'b', linewidth=3, alpha=0.5)
-
     # False positives
     false_det['S/N'] = np.hstack(false_det['S/N'])
     false_det['flag'] = np.hstack(false_det['flag'])
-    hObs, _ = np.histogram(false_det['S/N'], bins=bin_edges)
-    hFP, _ = np.histogram(false_det['S/N'][~false_det['flag']], bins=bin_edges)
-    ax.plot(bins, hFP/hObs, 'r:', label='False positives')
 
-    # Fit logistic function to false positives
-    FP = hFP/hObs
-    flag = np.isnan(FP)
-    result2 = lmfit.minimize(logistic, result1.params, \
-                   args=(bins[~flag], FP[~flag]))
-    y_fit_FP = logistic(result2.params, xTh, [])
-    ax.plot(xTh, y_fit_FP, 'r', linewidth=3, alpha=0.5)
+    bin_edges = np.concatenate([np.arange(2, 10), np.arange(10, 101, 10)])
+    hTh, bin_edges = np.histogram(det['S/N'], bins=bin_edges)
+    TP, _ = np.histogram(det['S/N'][det['flag']], bins=bin_edges)
+    FN, _ = np.histogram(det['S/N'][~det['flag']], bins=bin_edges)
+    FP, _ =  np.histogram(false_det['S/N'][~false_det['flag']], bins=bin_edges)
+    fig, ax = plt.subplots(figsize=(5, 3))
+    bins = bin_edges[:-1] + 0.5*np.diff(bin_edges)
+    precision = TP/(TP + FP)
+    precision[np.isnan(precision)] = 0.
+    sensitivity = TP/(TP + FN)
+    sensitivity[np.isnan(sensitivity)] = 0.
 
+    ax.plot(bins, precision, 'b--', label='Precision')
+    #ax.plot(bins, hNDe/hTh, '--', label='Missed events')
+    ax.set_xscale('log')
+    ax.set_xlabel('Peak S/N', fontsize=14)
+    ax.set_ylabel('Score', fontsize=14)
+
+    ax.plot(bins, sensitivity, 'r:', label='Sensitivity')
+
+    F1_score = 2.*precision*sensitivity/(precision + sensitivity)
+    xTh = np.linspace(bins.min(), bins.max(), 1000)
+    F1_smooth = make_splrep(bins, F1_score, s=0.001)(xTh)
+
+    ax.plot(bins, F1_score, 'g-.', label='$F_1$')
+    ax.plot(xTh, F1_smooth, 'g', linewidth=3, alpha=0.5)
     ax.set_ylim(0., 1.)
     plt.legend()
     plt.tight_layout()
     plt.savefig(folderout + 'detection_stats_SNR.pdf')
     plt.close('all')
 
-    x = np.linspace(bins.min(), bins.max(), 1000)
-    TP = interp1d(bins, hRet/hTh)(x)
-    FP = interp1d(bins, hFP/hObs)(x)
-    equal_det = x[abs(TP - FP).argmin()]
-    print('True positives = False positives at', equal_det)
-    max_det = max(hRet/hTh)*100.
-    print('Max detection rate (true positives):', max_det)
-
-    plt.figure()
-    reliability = y_fit_TP/(y_fit_TP + y_fit_FP)
-    # Normalize to 1
-    reliability /= np.sum(reliability)
-    plt.semilogx(xTh, reliability, label='Reliability')
-    ratio = y_fit_TP/y_fit_FP
-    ratio /= np.sum(ratio)
-    plt.semilogx(xTh, ratio, label='TP/FP')
-    plt.legend()
-    plt.xlabel('S/N', fontsize=14)
-    plt.ylabel('Score', fontsize=14)
-    plt.tight_layout()
-    plt.savefig(folderout + 'detection_stats_reliability.pdf')
-    plt.close('all')
-
     # Save reliability
-    with open(folderout + 'reliability.pic', 'wb') as fout:
-        pickle.dump([xTh, reliability], fout)
+    with open(folderout + 'F1_score.pic', 'wb') as fout:
+        pickle.dump([xTh, F1_smooth], fout)
 
     return
 
