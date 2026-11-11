@@ -26,7 +26,7 @@ def flare_dip(par, x, plots=False, add_flare=False):
     n = par['n']
 
     dipvalid = x >= x0
-    
+
     exponent1 = -(abs(x[dipvalid] - x0)/w2)**n
     exponent1[exponent1 < -100.] = -100.
     exponent2 = -(abs(x[x < x0] - x0)/w1)**n
@@ -244,3 +244,14 @@ def flare_dip_residuals(par, t, data, err, complexity):
                 + np.polyval([par['d'], par['e'], par['f']], t)))/err
     except FloatingPointError:
         return np.zeros(len(data)) + 1e6
+
+def weibull(par, x, data):
+    x -= par['x0']
+    model = par['c']/par['l']
+    model *= (x/par['l'])**(par['c'] - 1.)
+    model *= np.exp(-(x/par['l'])**par['c'])
+
+    if len(data) == 0:
+        return model
+    else:
+        return data - model
