@@ -706,34 +706,34 @@ def get_results(resfolder, min_flares=100, sectors=range(27, 88), \
     #                 lab='Complex', set_logbins=saveres_sym, pdf=False)
     #wt_diff(saveres_sym, saveres_compl, 'count_diff', resfolder)
 
-    saveres_sym = waiting_time_distribution(df, resfolder, 'IF + SFC', \
-                    lab='Part of complex', pdf=True)
-    saveres_compl = waiting_time_distribution(dfc, resfolder, 'IF + CF', \
-                    lab='Complex', set_logbins=saveres_sym, pdf=True)
-    wt_diff(saveres_sym, saveres_compl, 'model_residuals', resfolder)
-    set_trace()
+    #saveres_sym = waiting_time_distribution(df, resfolder, 'IF + SFC', \
+    #                lab='Part of complex', pdf=True)
+    #saveres_compl = waiting_time_distribution(dfc, resfolder, 'IF + CF', \
+    #                lab='Complex', set_logbins=saveres_sym, pdf=True)
+    #wt_diff(saveres_sym, saveres_compl, 'model_residuals', resfolder)
+
     ### Fits with stellar parameters (all in log quantities)
-    #simple_complex_fit(df[single], df[~single], dfc[complex], \
-    #        'log_radius', 'log_energy', \
-    #        r'$\log R_\star~[R_\odot]$', r'$\log$ Energy [erg]', resfolder)
-    #simple_complex_fit(df[single], df[~single], dfc[complex], \
-    #    'log_energy', 'log_efolding_time', \
-    #     r'$\log$ Energy [erg]', r'$\log \tau$ [min]', \
-    #     resfolder)
-    #simple_complex_fit(df[single], df[~single], dfc[complex], \
-    #    'logg', 'log_efolding_time', \
-    #     r'$\log g$', r'$\log \tau$ [min]', resfolder)
-    #simple_complex_fit(df[single], df[~single], dfc[complex], \
-    #        'logg', 'log_impulse', \
-    #       r'$\log g$', r'$\log \mathcal{I}$ [min$^{-1}$]', resfolder)
-    #simple_complex_fit(df[single], df[~single], dfc[complex], \
-    #        'logg', 'log_luminosity', \
-    #       r'$\log g$', r'$\log L_\mathrm{peak}$ [erg s$^{-1}$]', resfolder)
+    simple_complex_fit(df[single], df[~single], dfc[complex], \
+            'log_radius', 'log_energy', \
+            r'$\log R_\star~[R_\odot]$', r'$\log$ Energy [erg]', resfolder)
+    simple_complex_fit(df[single], df[~single], dfc[complex], \
+        'log_energy', 'log_efolding_time', \
+         r'$\log$ Energy [erg]', r'$\log \tau$ [min]', \
+         resfolder)
+    simple_complex_fit(df[single], df[~single], dfc[complex], \
+        'logg', 'log_efolding_time', \
+         r'$\log g$', r'$\log \tau$ [min]', resfolder)
+    simple_complex_fit(df[single], df[~single], dfc[complex], \
+            'logg', 'log_impulse', \
+           r'$\log g$', r'$\log \mathcal{I}$ [min$^{-1}$]', resfolder)
+    simple_complex_fit(df[single], df[~single], dfc[complex], \
+            'logg', 'log_luminosity', \
+           r'$\log g$', r'$\log L_\mathrm{peak}$ [erg s$^{-1}$]', resfolder)
 
     #skewness_distributions(df[single], df[~single], dfc[complex], resfolder)
-
-    #consecutive_flare_stats(df, dfc, resfolder)
     set_trace()
+    #consecutive_flare_stats(df, dfc, resfolder)
+    #set_trace()
     #segment_regression(pd.concat([df, dfc[complex]]), 'log_ED', resfolder, \
     #    labelx=r'$\log Ro$', labely=r'$\log$ ED', samesize=False)
     #segment_regression(pd.concat([df, dfc[complex]]), 'log_ED', resfolder, \
@@ -1106,11 +1106,13 @@ def simple_complex_fit(df1, df2, df3, par1, par2, label_par1, label_par2, \
     for i, dd in enumerate([df1, df2, df3]):
         x = dd[par1]
         y = dd[par2]
+        weight = dd['weight']
+
         rng = np.random.default_rng()
         a, b = [], []
         for j in range(1000):
             # Apply weight from injection tests
-            xi, yi = rng.choice([x, y], size=len(x), p=dd['weight'], axis=1)
+            xi, yi = rng.choice([x, y], size=len(x), p=weight, axis=1)
             ai, bi = np.polyfit(xi, yi, deg=1)
             a.append(ai)
             b.append(bi)
@@ -1128,8 +1130,9 @@ def simple_complex_fit(df1, df2, df3, par1, par2, label_par1, label_par2, \
                     label=labels[i], linewidth=3)
 
         # Compute correlation coefficient for the subset without outliers
-        R, p = stats.spearmanr(x, y)
-        print('Spearman R, p: {:.2f}, {:.2f}'.format(R, p))
+        rsp, pv = sf.weighted_corr(x, y, weight)
+        print('Weighted Spearman correlation coefficient (r, p-value):' \
+                    + '{:.2f}, {:.2f}'.format(rsp, pv))
         #R, p = stats.pearsonr(x, y)
         #print('Pearson R, p: {:.2f}, {:.2f}'.format(R, p))
 
@@ -1639,8 +1642,11 @@ def segment_regression(df, par, resfolder, labelx='', labely='', samesize=False)
         x = df['log_Ro'][flag].tolist()
         y = df[par][flag].tolist()
         weight = df['weight'][flag]
+        sp = sf.weighted_corr(x, y, weight)
 
         print(par, 'vs log Ro -', ft)
+        print(par, 'weighted Spearman correlation coefficient (r, p-value):' \
+                    + '{:.2f}, {:.2f}'.format(sp[0], sp[1]))
 
         # Bootstrap
         rng = np.random.default_rng()
@@ -1690,6 +1696,7 @@ def segment_regression(df, par, resfolder, labelx='', labely='', samesize=False)
                     fmt='o', color=colors[ift], capsize=2)
         ax.plot(xx, model, linewidth=2, label=ft)
 
+    '''
     plt.xlabel(labelx, fontsize=14)
     plt.ylabel(labely, fontsize=14)
     plt.legend()
@@ -1699,7 +1706,7 @@ def segment_regression(df, par, resfolder, labelx='', labely='', samesize=False)
     else:
         plt.savefig(resfolder + par + '_vs_Ro_segmented_samesize.pdf')
     plt.close()
-
+    '''
     return
 
 def search_dragonking(dfc, resfolder, par='Energy [erg]', min_flares=100, \
@@ -2376,17 +2383,23 @@ def consecutive_flare_stats(df, dfcomplex, resfolder):
     plt.close()
 
     # Consecutive EDs
-    dfc['log_ED_consecutive'] = dfc.groupby(['LCname', \
-            'n_event'])['log_ED'].shift(-1).astype(float)
-    dfi['log_ED_consecutive'] = dfi.groupby('LCname')[ \
-                'log_ED'].shift(-1).astype(float)
+    #dfc['log_ED_consecutive'] = dfc.groupby(['LCname', \
+    #        'n_event'])['log_ED'].shift(-1).astype(float)
+    dfc['log_energy_consecutive'] = dfc.groupby(['LCname', \
+            'n_event'])['log_energy'].shift(-1).astype(float)
+    #dfi['log_ED_consecutive'] = dfi.groupby('LCname')[ \
+    #            'log_ED'].shift(-1).astype(float)
+    dfi['log_energy_consecutive'] = dfi.groupby('LCname')[ \
+                'log_energy'].shift(-1).astype(float)
 
     # Add consecutive isolated single-peak flares
     # (multi-peak flares are removed by imposing seq == 1)
     dfsingle = dfcomplex[np.logical_and( \
         dfcomplex['peaks_per_event'] == 1, dfcomplex['seq'] == 1)]
-    dfsingle['log_ED_consecutive'] = dfsingle.groupby('LCname')[ \
-                'log_ED'].shift(-1).astype(float)
+    #dfsingle['log_ED_consecutive'] = dfsingle.groupby('LCname')[ \
+    #            'log_ED'].shift(-1).astype(float)
+    dfsingle['log_energy_consecutive'] = dfsingle.groupby('LCname')[ \
+                'log_energy'].shift(-1).astype(float)
 
     # Add non-consecutive isolated single-peak flares - at least 1 hr separation
     # - same star. Select random pairs of flares
@@ -2400,8 +2413,16 @@ def consecutive_flare_stats(df, dfcomplex, resfolder):
 
     # Compute corr coeff for 1000 samplings, different stars
     print('Flare pairs from different stars')
-    r_random_mean, random_p = sf.random_pais_correlation( \
-        df['log_ED'].values, df['weight'].values/np.sum(df['weight']))
+    #r_random_mean, random_p = sf.random_pairs_correlation( \
+    #    df['log_ED'].values, df['weight'].values/np.sum(df['weight']))
+    zzr, mu, std = sf.z_score_group(df, ['log_energy'], 'ticname')
+    wr = df['weight'].values/np.sum(df['weight'])
+    Xr = pd.DataFrame({'z1':zzr['z0'], 'w':wr})
+    Xr = pd.concat([df, Xr], axis=1)
+    Xr.dropna(subset=['z1'], inplace=True)
+    Xr = Xr[~Xr.duplicated('z1')]
+    r_random_mean, random_p = sf.random_pairs_correlation( \
+        Xr['z1'].values, Xr['weight'].values/np.sum(Xr['weight']))
 
     oks = []
     labels = ['Multi-peak components', 'Consecutive single-peak', \
@@ -2412,8 +2433,8 @@ def consecutive_flare_stats(df, dfcomplex, resfolder):
         if i < 3:
             # Observed weighted Pearson correlation coefficient (sample - non-consecutive
             # single-peak) vs bootstrapped difference
-            zz1, mu, std = sf.z_score_group(dd, ['log_ED', \
-                            'log_ED_consecutive'], 'LCname')
+            zz1, mu, std = sf.z_score_group(dd, ['log_energy', \
+                            'log_energy_consecutive'], 'ticname')
             w1 = dd['weight']/np.sum(dd['weight'])
             X1 = pd.DataFrame({'z1':zz1['z0'], 'z2':zz1['z1'], 'w':w1})
             X1 = pd.concat([dd, X1], axis=1)
@@ -2425,29 +2446,36 @@ def consecutive_flare_stats(df, dfcomplex, resfolder):
 
             # Random pairs of flares on the same star will have to be sampled,
             # so there's no single "consecutive"
-            x2 = dfsingle_sep['log_ED']
+            x2 = dfsingle_sep['log_energy']
             w2 = dfsingle_sep['weight']/np.sum(dfsingle_sep['weight'])
-            zz2, mu, std = sf.z_score_group(dfsingle_sep, ['log_ED'], 'ticname')
+            zz2, mu, std = sf.z_score_group(dfsingle_sep, ['log_energy'], \
+                            'ticname')
             X2 = pd.DataFrame({'z1':zz2['z0'], 'w':w2})
             X2 = pd.concat([dfsingle_sep, X2], axis=1)
             X2.dropna(subset=['z1'], inplace=True)
+            X2 = X2[~X2.duplicated('z1')]
 
             # Compute correlation coeffs and significance of correlation
             # coefficient difference
             dd_rho, dfsingle_sep_rho, null_diffs_CI, X2pairs \
-                    = sf.weighted_bootstrap_diff_correlation(X1, X2)
+                = sf.weighted_bootstrap_diff_correlation(X1, X2)
+            perc = [2.5, 50, 97.5]
+            dd95 = np.percentile(dd_rho, perc)
             print(labels[i], 'Delta r with random single-peak same star (95%)' \
                 + ' = {:.2f} - {:.2f}'.format(null_diffs_CI[0], null_diffs_CI[2]))
             axs.flat[i].plot(X1['z1'], X1['z2'], '.', alpha=0.3, \
-                    label=r'$r=${:.2f}$\pm${:.2f} ({})'.format( \
-                    np.mean(dd_rho), np.std(dd_rho), len(X1)))
+                    label=r'$r = ${:.2f} [{:.2f}, {:.2f}] ({})'.format( \
+                    dd95[1], dd95[0], dd95[2], len(X1)))
+                    #np.mean(dd_rho), np.std(dd_rho), len(X1)))
             xx = np.linspace(X1['z1'].min(), X1['z1'].max(), 1000)
         else:
             # You've already computed this one
+            dfsingle_sep_rho95 = np.percentile(dfsingle_sep_rho, perc)
             axs.flat[i].plot(X2pairs[0], X2pairs[1], '.', alpha=0.3, \
-                label=r'$r=${:.2f} $\pm$ {:.2f} ({})'.format( \
-                np.mean(dfsingle_sep_rho), np.std(dfsingle_sep_rho), \
-                np.shape(X2pairs)[1]))
+                label=r'$r: ${:.2f} [{:.2f}, {:.2f}] ({})'.format( \
+                dfsingle_sep_rho95[1], dfsingle_sep_rho[1], \
+                dfsingle_sep_rho[2], np.shape(X2pairs)[1]))
+                #np.mean(dfsingle_sep_rho), np.std(dfsingle_sep_rho), \
             xx = np.linspace(X2pairs[0].min(), X2pairs[0].max(), 1000)
 
         axs.flat[i].set_title(labels[i], fontsize=14)
@@ -2456,12 +2484,11 @@ def consecutive_flare_stats(df, dfcomplex, resfolder):
         axs.flat[i].tick_params(axis='both', which='major', labelsize=14)
         axs.flat[i].tick_params(axis='both', which='minor', labelsize=12)
 
-    fig.supxlabel(r'$z$(ED)', fontsize=15)
-    fig.supylabel(r'$z$(Consecutive ED)', fontsize=15)
+    fig.supxlabel(r'$z$(Energy)', fontsize=15)
+    fig.supylabel(r'$z$(Consecutive energy)', fontsize=15)
     plt.tight_layout()
-    plt.savefig(resfolder + 'consecutive_flare_ED.pdf')
+    plt.savefig(resfolder + 'consecutive_flare_energy.pdf')
     plt.close()
-
     set_trace()
     return
 

@@ -25,7 +25,7 @@ def compute_t_value(r, df, n, alternative='two-sided'):
 
     return p_val
 
-def weighted_bootstrap_diff_correlation(X1, X2, n_bootstraps=1000, CI=68.):
+def weighted_bootstrap_diff_correlation(X1, X2, n_bootstraps=1000, CI=95.):
     '''
     Bootstrap test for the difference in correlation coefficients with weighted
     resampling.
@@ -237,7 +237,7 @@ def permutated_skew(df, par, weight, refvalue, niter=1000):
     pvalue = np.nansum(np.array(stat_r) >= refvalue)/niter
     return pvalue
 
-def random_pais_correlation(x, weights, CI=95.):
+def random_pairs_correlation(x, weights, CI=95.):
     '''
     Correlation and p-value for random pais of elements.
 
