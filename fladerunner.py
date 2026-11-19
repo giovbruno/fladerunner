@@ -673,7 +673,7 @@ def get_results(resfolder, min_flares=100, sectors=range(27, 88), \
         'Flare type', 'phot_var', 'tessmag', \
         'Prot', 'FAP', 'distance', 'scatter_SN', 'Aspot [Asun]', \
         'Spectral type', 'Teff [K]', 'logg', 'feh', 'mass', 'radius',
-        'tau_conv_wright', 'flares_per_target', 'time_on_target']
+        'tau_conv_wright', 'flares_per_target', 'time_on_target', 'weight']
 
     df1 = copy.deepcopy(df)
     dfc1 = copy.deepcopy(dfc)
@@ -713,25 +713,25 @@ def get_results(resfolder, min_flares=100, sectors=range(27, 88), \
     #wt_diff(saveres_sym, saveres_compl, 'model_residuals', resfolder)
 
     ### Fits with stellar parameters (all in log quantities)
-    simple_complex_fit(df[single], df[~single], dfc[complex], \
-            'log_radius', 'log_energy', \
-            r'$\log R_\star~[R_\odot]$', r'$\log$ Energy [erg]', resfolder)
-    simple_complex_fit(df[single], df[~single], dfc[complex], \
-        'log_energy', 'log_efolding_time', \
-         r'$\log$ Energy [erg]', r'$\log \tau$ [min]', \
-         resfolder)
-    simple_complex_fit(df[single], df[~single], dfc[complex], \
-        'logg', 'log_efolding_time', \
-         r'$\log g$', r'$\log \tau$ [min]', resfolder)
-    simple_complex_fit(df[single], df[~single], dfc[complex], \
-            'logg', 'log_impulse', \
-           r'$\log g$', r'$\log \mathcal{I}$ [min$^{-1}$]', resfolder)
-    simple_complex_fit(df[single], df[~single], dfc[complex], \
-            'logg', 'log_luminosity', \
-           r'$\log g$', r'$\log L_\mathrm{peak}$ [erg s$^{-1}$]', resfolder)
+    #simple_complex_fit(df[single], df[~single], dfc[complex], \
+    #        'log_radius', 'log_energy', \
+    #        r'$\log R_\star~[R_\odot]$', r'$\log$ Energy [erg]', resfolder)
+    #simple_complex_fit(df[single], df[~single], dfc[complex], \
+    #    'log_energy', 'log_efolding_time', \
+    #     r'$\log$ Energy [erg]', r'$\log \tau$ [min]', \
+    #     resfolder)
+    #simple_complex_fit(df[single], df[~single], dfc[complex], \
+    #    'logg', 'log_efolding_time', \
+    #     r'$\log g$', r'$\log \tau$ [min]', resfolder)
+    #simple_complex_fit(df[single], df[~single], dfc[complex], \
+    #        'logg', 'log_impulse', \
+    #       r'$\log g$', r'$\log \mathcal{I}$ [min$^{-1}$]', resfolder)
+    #simple_complex_fit(df[single], df[~single], dfc[complex], \
+    #        'logg', 'log_luminosity', \
+    #       r'$\log g$', r'$\log L_\mathrm{peak}$ [erg s$^{-1}$]', resfolder)
 
     #skewness_distributions(df[single], df[~single], dfc[complex], resfolder)
-    set_trace()
+
     #consecutive_flare_stats(df, dfc, resfolder)
     #set_trace()
     #segment_regression(pd.concat([df, dfc[complex]]), 'log_ED', resfolder, \
@@ -1962,12 +1962,9 @@ def waiting_time_distribution(df, resfolder, fltypes, lab, set_logbins=None, \
         #        + '\n' + r'$\theta={:.1f}\pm{:.1f}$ min)'.format(x0_mean, x0_std)
         yy = ax_wt.hist(distrib, bins=logbins, log=False, density=pdf, \
                     histtype='step', color=ccs[i], label=ro_i + label)
-        #            + labeladd)
 
         if yy[0].max() > ymax:
             ymax = yy[0].max()
-        #xth = lambda a, x: stats.weibull_min.ppf(a, x[0], loc=x[1], \
-        #                                  scale=x[2])
         xth = lambda a, x: stats.weibull_min.ppf(a, x.c, loc=x.loc, \
                                           scale=x.scale)
         x_wm = np.linspace(xth(0.001, fit_wm), xth(0.999, fit_wm), 300000)
@@ -1996,10 +1993,8 @@ def waiting_time_distribution(df, resfolder, fltypes, lab, set_logbins=None, \
     ax_wt.set_xlabel('Waiting time [min]', fontsize=14)
     ax_wt.set_ylabel(r'$P(\Delta t)$', fontsize=14)
     plt.tight_layout()
-    plt.show()
-    set_trace()
-    #plt.savefig(resfolder + 'waiting_time_distribution_' + fltypes + '.pdf')
-    #plt.close('all')
+    plt.savefig(resfolder + 'waiting_time_distribution_' + fltypes + '.pdf')
+    plt.close('all')
 
     return saveres
 
@@ -2431,8 +2426,8 @@ def consecutive_flare_stats(df, dfcomplex, resfolder):
     fig, axs = plt.subplots(nrows=1, ncols=4, figsize=(16, 5))
     for i, dd in enumerate([dfc, dfsingle, dfi, dfsingle_sep]):
         if i < 3:
-            # Observed weighted Pearson correlation coefficient (sample - non-consecutive
-            # single-peak) vs bootstrapped difference
+            # Observed weighted Pearson correlation coefficient (sample
+            # - non-consecutive single-peak) vs bootstrapped difference
             zz1, mu, std = sf.z_score_group(dd, ['log_energy', \
                             'log_energy_consecutive'], 'ticname')
             w1 = dd['weight']/np.sum(dd['weight'])
